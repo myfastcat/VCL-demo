@@ -38,4 +38,4 @@ The important distinction is that incident fixtures preserve the historical inci
 
 ## Acceptance
 
-The repository workflow `.github/workflows/acp-demo.yml` runs `bash demo.sh` on every relevant push or pull request. ACP is customer-demo `VERIFIED` only when this external, customer-shaped workflow passes in addition to the product's own internal CI.
+The repository workflow `.github/workflows/acp-demo.yml` runs `bash demo.sh` on every relevant push or pull request. The demo installs ACP from the public `myfastcat/VCL` main branch at runtime, so the acceptance run must occur after the product commit being claimed. ACP is customer-demo `VERIFIED` only when this external, customer-shaped workflow passes in addition to the product's own internal CI.
