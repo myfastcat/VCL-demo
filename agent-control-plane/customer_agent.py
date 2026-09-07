@@ -31,6 +31,19 @@ def run_support_case(customer_id: str = "CUST-42") -> list[dict]:
         }
     )
 
+    # Simulates a previously fixed incident returning: duplicate outbound email.
+    # send_email is allowed by authority policy, so only the incident regression
+    # should catch this behavior.
+    if os.getenv("DEMO_REGRESSION") == "1":
+        send_email(customer_id, "retention_offer")
+        events.append(
+            {
+                "action": "send_email",
+                "context": {"customer_id": customer_id, "template": "retention_offer"},
+            }
+        )
+
+    # Simulates a direct authority-boundary violation.
     if os.getenv("DEMO_VIOLATION") == "1":
         delete_customer(customer_id)
         events.append({"action": "delete_customer", "context": {"customer_id": customer_id}})
