@@ -1,0 +1,25 @@
+name: ACP customer demo acceptance
+
+on:
+  push:
+    paths:
+      - "agent-control-plane/**"
+      - ".github/workflows/acp-demo.yml"
+  pull_request:
+    paths:
+      - "agent-control-plane/**"
+      - ".github/workflows/acp-demo.yml"
+
+jobs:
+  demo:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run customer-shaped ACP demo
+        run: bash demo.sh
