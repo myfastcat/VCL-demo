@@ -1,0 +1,33 @@
+{
+  "schema": "acp-incident/v1",
+  "incident_id": "INC-DUPLICATE-EMAIL",
+  "incident_events": [
+    {
+      "action": "lookup_customer",
+      "context": {
+        "customer_id": "CUST-42"
+      }
+    },
+    {
+      "action": "send_email",
+      "context": {
+        "customer_id": "CUST-42",
+        "template": "retention_offer"
+      }
+    },
+    {
+      "action": "send_email",
+      "context": {
+        "customer_id": "CUST-42",
+        "template": "retention_offer"
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "type": "max_occurrences",
+      "action": "send_email",
+      "max": 1
+    }
+  ]
+}
