@@ -1,93 +1,290 @@
 # Agent Control Plane — Customer CI Demo
 
-This repository models ACP the way a customer would actually use it: a small amount of one-time setup, then automatic enforcement inside CI. There is no separate demo script and no second ACP-specific test suite.
+This demo shows ACP exactly from a customer's point of view: **what the customer runs, which files those commands produce, what CI runs afterward, and what the customer sees in concrete cases.**
 
-## One-time setup
+There is no separate demo script. The GitHub Actions workflow itself is the demo because ACP is meant to be used as a CI gate.
 
-A customer installs ACP and initializes it once in the agent repository. That setup generates the ACP configuration and CI integration, which are then committed to the repository.
+## Customer scenario
 
-For this demo, the resulting customer-owned files are already present:
+The simulated company has a customer-support agent in `customer_agent.py`. Its existing application test is `tests/test_customer_agent.py`.
 
-- `.acp/authority.json` — the business authority boundary;
-- `.acp/config.json` — ACP trace and incident discovery configuration;
-- `.acp/incidents/INC-DUPLICATE-EMAIL.json` — a committed regression rule learned from a previous production incident;
-- `.github/workflows/acp-demo.yml` — the CI workflow that exercises the customer's existing tests and ACP gate.
-
-The customer does not run `acp check` manually for every code change. The CI workflow does that automatically.
-
-## The customer application
-
-`customer_agent.py` is a simulated customer-support agent. `tests/test_customer_agent.py` is an ordinary application test. It is intentionally not written as an ACP test.
-
-The normal test exercises tool calls such as:
+The agent normally calls:
 
 - `lookup_customer`
 - `send_email`
 
-ACP observes the behavior produced by these existing tests and adds a separate safety/regression judgment in CI.
+The customer wants two protections:
 
-## Case 1 — a normal PR passes
+- `delete_customer` must never be called by this support agent;
+- a previous production incident in which the same retention email was sent twice must never recur.
 
-A developer changes the agent but it still calls only allowed tools.
+## 1. What the customer would run once during setup
 
-CI does exactly what the customer's real workflow would do:
+In a real repository the customer would install ACP and initialize the CI integration once:
 
-```text
-checkout code
-    ↓
-run existing customer tests
-    ↓
-ACP observes/discovers the tool calls
-    ↓
-check authority boundary
-    +
-check committed incident regressions
-    ↓
-PASS
+```bash
+python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+acp init . --ci --test-command "pytest -q"
 ```
 
-The `safe-change` job in `.github/workflows/acp-demo.yml` is the concrete example.
+That produces the customer-owned ACP files:
 
-## Case 2 — the agent crosses its authority boundary
+```text
+.acp/authority.json
+.acp/config.json
+.github/workflows/acp.yml
+.acp/incidents/
+```
 
-Imagine a code change makes the support agent call `delete_customer`.
+This demo already contains the equivalent configured files so the repository represents the state **after** that one-time setup:
 
-The ordinary customer test still runs. ACP then evaluates the behavior from that CI run against `.acp/authority.json`, where `delete_customer` is denied.
+| Demo file | Customer meaning |
+|---|---|
+| `.acp/authority.json` | business authority boundary |
+| `.acp/config.json` | ACP trace + incident discovery and CI failure policy |
+| `.acp/incidents/INC-DUPLICATE-EMAIL.json` | durable regression rule learned from a past incident |
+| `.github/workflows/acp-demo.yml` | customer-shaped CI workflow used to demonstrate the behavior |
 
-The `authority-violation` CI job proves that ACP blocks the change even though the application test itself does not encode this business authority rule.
+The demo authority contract specifically says:
 
-The customer does not write another safety test for this PR. The existing test supplies the behavior; ACP supplies the authority judgment.
+```text
+lookup_customer  → ALLOW
+send_email       → ALLOW
+delete_customer  → DENY
+```
 
-## Case 3 — a past production incident has been fixed
+## 2. What CI runs for each normal code change
 
-The company previously had a duplicate-email incident: the agent sent the same retention email twice.
+A developer does not run ACP by hand for every PR. The CI workflow runs the customer's existing test and then ACP.
 
-After that incident, the team made a one-time business decision: in this regression scenario, `send_email` may occur at most once. That rule is already committed as `.acp/incidents/INC-DUPLICATE-EMAIL.json`.
+In this demo the relevant commands are:
 
-Now the fixed agent sends one email. The `incident-fixed` CI job runs the normal customer test, ACP automatically discovers the committed incident rule, compares it with the current run's observed behavior, and passes.
+```bash
+pytest -q
+acp check --config .acp/config.json
+```
 
-The historical bad trace is retained as evidence. It does not make every future build fail.
+The first command exercises the customer agent. `customer_agent.py` writes the observed tool-call behavior to:
 
-## Case 4 — the historical incident returns
+```text
+.acp/traces/customer-support.json
+```
 
-A later code change reintroduces the duplicate-email behavior.
+The second command consumes that current-run trace plus the committed customer rules:
 
-`send_email` is still an allowed action, so this is not an authority violation. The ordinary application test can still be green. But the current CI run now contains two `send_email` calls.
+```text
+.acp/authority.json
+.acp/incidents/*.json
+```
 
-The `incident-regression` job proves that ACP automatically evaluates the committed incident invariant against that current behavior and blocks the change.
+and produces a CI result.
 
-This is the core incident-regression value: a production lesson becomes a permanent CI guard without wiring a new CI step for every future PR.
+Its summary has this shape:
 
-## What the customer actually maintains
+```text
+events=<N> allow=<N> approval=<N> deny=<N> incident_regressions=<N> incident_failures=<N> avg_risk=<...> ci_pass=<true|false>
+```
 
-The customer keeps the systems they already have: application tests, CI and production observability. ACP adds a control layer around them.
+Exit `0` means the PR may continue. Exit `2` means ACP observed either a denied action or a recurrence of a committed incident pattern.
 
-The customer is responsible for business decisions that ACP should not invent: the authority boundary and, after a real incident, the invariant that must hold in the future. ACP owns the repetitive CI work: trace capture/discovery, authority evaluation, incident-rule discovery, current-run regression evaluation and the final pass/block result.
+Now look at the actual customer cases.
 
-Production incident traces currently come from the customer's existing logging/observability system. Direct production-observability connectors are not yet built into ACP.
+## Case 1 — normal support-agent change
 
-## Acceptance
+### Customer/CI command
 
-The GitHub Actions workflow itself is the demo. Each job represents a customer code-change scenario and uses the same pattern a customer would use in practice: run existing tests, then let ACP make the CI safety decision.
+```bash
+pytest -q
+acp check --config .acp/config.json
+```
 
-ACP is customer-demo `VERIFIED` only when this workflow passes in addition to ACP's own internal CI.
+### Trace produced by the customer's test
+
+`.acp/traces/customer-support.json` contains the current run's normal behavior:
+
+```text
+lookup_customer
+send_email
+```
+
+### ACP effect
+
+Both actions are `ALLOW`, and the duplicate-email incident rule is also satisfied because `send_email` occurs only once.
+
+Expected result:
+
+```text
+customer test → PASS
+ACP check     → exit 0 / PASS
+```
+
+The concrete workflow job is `safe-change` in `.github/workflows/acp-demo.yml`.
+
+## Case 2 — a PR introduces an unauthorized customer deletion
+
+The demo uses an environment flag only to simulate the bad code change. From ACP's point of view this is simply a PR whose existing customer test now exercises different agent behavior.
+
+### Customer/CI command for this simulated PR
+
+```bash
+DEMO_VIOLATION=1 pytest -q
+acp check --config .acp/config.json
+```
+
+### Trace produced
+
+`.acp/traces/customer-support.json` now includes:
+
+```text
+lookup_customer
+send_email
+delete_customer
+```
+
+### ACP effect
+
+The ordinary application test still passes because it is not an authority-policy test. ACP reads `.acp/authority.json`, matches `delete_customer` to `DENY`, and blocks the CI gate.
+
+Expected result:
+
+```text
+customer test → PASS
+ACP check     → exit 2 / BLOCK
+reason        → denied authority action: delete_customer
+```
+
+The concrete workflow job is `authority-violation`.
+
+## 3. How this customer learned from a real production incident
+
+The company previously had a production incident in which the same retention email was sent twice.
+
+The raw historical evidence for this demo is:
+
+```text
+incidents/raw-duplicate-email.json
+```
+
+A real customer would perform this incident-learning step once:
+
+```bash
+acp incident import incidents/raw-duplicate-email.json \
+  --incident-id INC-DUPLICATE-EMAIL
+```
+
+That produces:
+
+```text
+.acp/incidents/INC-DUPLICATE-EMAIL.json
+```
+
+Then the customer records the business invariant:
+
+```bash
+acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json \
+  --max-occurrences send_email \
+  --max 1
+```
+
+That updates the same file with the durable rule:
+
+```json
+{
+  "type": "max_occurrences",
+  "action": "send_email",
+  "max": 1
+}
+```
+
+This demo already commits that resulting fixture at `.acp/incidents/INC-DUPLICATE-EMAIL.json`, exactly as a customer would after completing the one-time incident-learning step.
+
+No new per-PR command is added after this. Normal CI keeps running `acp check`, and ACP discovers the incident rule automatically.
+
+## Case 3 — the historical incident is fixed
+
+### Customer/CI command
+
+```bash
+pytest -q
+acp check --config .acp/config.json
+```
+
+### Current trace produced
+
+```text
+lookup_customer
+send_email
+```
+
+### ACP effect
+
+ACP discovers `.acp/incidents/INC-DUPLICATE-EMAIL.json` and checks its invariant against the **current run**. `send_email` occurs once, so the historical incident remains fixed.
+
+Expected result:
+
+```text
+customer test → PASS
+ACP check     → exit 0 / PASS
+incident      → INC-DUPLICATE-EMAIL passed=true
+```
+
+The concrete workflow job is `incident-fixed`.
+
+## Case 4 — a later PR reintroduces the duplicate-email incident
+
+Again, the environment flag exists only to simulate a regressing customer code change.
+
+### Customer/CI command for this simulated PR
+
+```bash
+DEMO_REGRESSION=1 pytest -q
+acp check --config .acp/config.json
+```
+
+### Current trace produced
+
+```text
+lookup_customer
+send_email
+send_email
+```
+
+### ACP effect
+
+`send_email` itself is still `ALLOW`, so the authority boundary alone would not catch this problem. ACP then applies the committed incident rule and sees two calls where the maximum is one.
+
+Expected result:
+
+```text
+customer test → PASS
+ACP check     → exit 2 / BLOCK
+reason        → INC-DUPLICATE-EMAIL regression: send_email occurred 2 > 1
+```
+
+The concrete workflow job is `incident-regression`.
+
+## What this demo proves
+
+The customer's operating model is intentionally small:
+
+```text
+ONE TIME
+install/init → review authority → commit ACP files
+incident happens → import trace → add invariant → commit incident file
+
+EVERY PR
+existing customer tests → trace/output artifact → acp check → PASS or BLOCK
+```
+
+The demo therefore proves the relationship between **customer command → produced artifact → ACP decision**, rather than presenting ACP as a collection of unrelated commands.
+
+## Where to inspect the concrete implementation
+
+- `.github/workflows/acp-demo.yml` — the actual customer-shaped CI cases.
+- `.acp/authority.json` — the exact authority decisions used in the cases.
+- `.acp/config.json` — the trace/incident discovery configuration.
+- `.acp/incidents/INC-DUPLICATE-EMAIL.json` — the exact committed incident rule.
+- `customer_agent.py` — the simulated customer agent and generated trace artifact.
+- `tests/test_customer_agent.py` — the ordinary customer application test.
+
+ACP customer-demo status is only `VERIFIED` when this repository's GitHub Actions workflow passes in addition to ACP's own product CI.
