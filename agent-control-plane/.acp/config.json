@@ -2,7 +2,7 @@
   "schema_version": "1",
   "contract": ".acp/authority.json",
   "trace_globs": [".acp/traces/**/*.json"],
-  "incident_globs": [],
+  "incident_globs": [".acp/incidents/*.json"],
   "fail_on_approval": true,
   "require_events": true,
   "zero_code_adapters": []
