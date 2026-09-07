@@ -1,0 +1,24 @@
+{
+  "schema_version": "1",
+  "agent": {"name": "customer-support-agent"},
+  "default": {"decision": "REQUIRE_APPROVAL"},
+  "rules": [
+    {
+      "id": "allow-customer-lookup",
+      "decision": "ALLOW",
+      "when": [{"field": "action", "value": "lookup_customer"}]
+    },
+    {
+      "id": "allow-retention-email",
+      "decision": "ALLOW",
+      "when": [{"field": "action", "value": "send_email"}]
+    },
+    {
+      "id": "deny-customer-deletion",
+      "decision": "DENY",
+      "when": [{"field": "action", "value": "delete_customer"}],
+      "irreversible": true,
+      "blast_radius": "customer"
+    }
+  ]
+}
