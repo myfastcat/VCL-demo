@@ -1,8 +1,6 @@
 # Agent Control Plane — Customer Demo
 
-This directory is a small simulated customer repository for demonstrating ACP to a buyer or engineering team.
-
-The sample agent can look up a customer and send a retention email. A hidden demo switch makes it also call `delete_customer`; ACP should allow the normal flow and block the simulated authority violation.
+This directory is a simulated customer repository for demonstrating ACP to a buyer or engineering team. It shows the major customer-facing flows end to end: normal authority-safe behavior, an authority violation, and a historical incident turned into a regression gate.
 
 ## Run the demo
 
@@ -11,27 +9,33 @@ cd agent-control-plane
 bash demo.sh
 ```
 
-Expected story:
+The script tells this story automatically:
 
-1. the normal customer-support flow emits tool-call trace data and `acp check` passes;
-2. the demo injects `delete_customer` without changing the unit-test expectation;
-3. the application test still passes, but ACP detects the denied action and exits `2`;
-4. the script treats that ACP failure as the successful demo outcome.
+1. **Safe flow** — the customer-support test emits tool-call traces and `acp check` passes.
+2. **Authority violation** — the application test still passes, but the agent calls `delete_customer`; ACP sees the current trace, applies the authority contract, and exits `2`.
+3. **Incident creation** — a historical duplicate-email trace is imported with `acp incident import`, then the customer records the business invariant with `acp incident assert ... --max-occurrences send_email --max 1`. No JSON editing is required.
+4. **Fixed behavior** — the historical incident remains stored under `.acp/incidents/`, but the current test run sends one email, so the incident regression passes.
+5. **Regression returns** — the application test still passes and `send_email` is still allowed by the authority policy, but the current run sends it twice. ACP evaluates the committed incident invariant against the current observed trace and exits `2`.
 
-## Files a customer would recognize
+## Customer-shaped files
 
 - `customer_agent.py` — simulated application/tool code.
-- `tests/test_customer_agent.py` — ordinary application test that emits a trace artifact.
-- `.acp/authority.json` — business authority boundary: lookup/email allowed, customer deletion denied.
-- `.acp/config.json` — tells ACP where the customer trace is located.
-- `demo.sh` — repeatable sales/demo path.
+- `tests/test_customer_agent.py` — ordinary application test that deliberately does not encode ACP policy.
+- `.acp/authority.json` — authority boundary: lookup/email allowed, customer deletion denied.
+- `.acp/config.json` — trace and incident discovery configuration.
+- `incidents/raw-duplicate-email.json` — example historical production incident trace.
+- `.acp/incidents/` — generated durable incident regression fixtures during the demo.
+- `demo.sh` — repeatable customer/sales acceptance path.
 
-## What this proves
+## What the demo proves
 
-The demo is intentionally customer-shaped rather than an ACP internal unit test. It demonstrates that an application test can remain green while ACP independently fails the build because the observed agent action crossed an explicit authority boundary.
+ACP catches two different classes of failure that ordinary application tests may miss:
 
-## Current scope of this demo
+- **Authority regression:** the agent performs an action it is not authorized to perform.
+- **Incident regression:** an action may still be authorized in general, but a specific previously observed bad behavior returns. In this demo, one retention email is allowed; sending it twice violates the learned incident invariant.
 
-This first customer demo verifies the authority-gate path. Incident-regression is not presented here as customer-verified until its end-to-end replay semantics are separately exercised by a customer-shaped reproduction scenario.
+The important distinction is that incident fixtures preserve the historical incident as evidence, while CI evaluates their invariants against the **current run's observed tool-call events**. A past incident therefore does not fail forever; only recurrence in current behavior fails the build.
 
-The repository workflow `.github/workflows/acp-demo.yml` reruns this customer path on demo changes so customer-facing examples have their own acceptance evidence.
+## Acceptance
+
+The repository workflow `.github/workflows/acp-demo.yml` runs `bash demo.sh` on every relevant push or pull request. ACP is customer-demo `VERIFIED` only when this external, customer-shaped workflow passes in addition to the product's own internal CI.
