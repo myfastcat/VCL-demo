@@ -11,7 +11,8 @@ on:
       - ".github/workflows/acp-demo.yml"
 
 jobs:
-  demo:
+  safe-change:
+    name: Safe customer change passes
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -21,5 +22,91 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Run customer-shaped ACP demo
-        run: bash demo.sh
+      - name: Install customer dependencies + ACP
+        run: |
+          python -m pip install pytest
+          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+      - name: Run existing customer tests
+        run: pytest -q
+      - name: ACP CI safety gate
+        run: acp check --config .acp/config.json
+
+  authority-violation:
+    name: Unauthorized agent action is blocked
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install customer dependencies + ACP
+        run: |
+          python -m pip install pytest
+          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+      - name: Run existing customer tests for a bad code change
+        run: DEMO_VIOLATION=1 pytest -q
+      - name: ACP blocks the unauthorized action
+        shell: bash
+        run: |
+          set +e
+          acp check --config .acp/config.json
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo "Expected ACP to block authority violation with exit 2; got $status"
+            exit 1
+          fi
+          echo "ACP blocked delete_customer as expected"
+
+  incident-fixed:
+    name: Fixed historical incident stays green
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install customer dependencies + ACP
+        run: |
+          python -m pip install pytest
+          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+      - name: Run existing customer tests after the incident fix
+        run: pytest -q
+      - name: ACP checks committed incident regression rules
+        run: acp check --config .acp/config.json
+
+  incident-regression:
+    name: Historical incident recurrence is blocked
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent-control-plane
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install customer dependencies + ACP
+        run: |
+          python -m pip install pytest
+          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
+      - name: Run existing customer tests for a regressing code change
+        run: DEMO_REGRESSION=1 pytest -q
+      - name: ACP blocks recurrence of the historical incident
+        shell: bash
+        run: |
+          set +e
+          acp check --config .acp/config.json
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo "Expected ACP to block incident recurrence with exit 2; got $status"
+            exit 1
+          fi
+          echo "ACP blocked duplicate-email regression as expected"
