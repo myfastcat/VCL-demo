@@ -1,0 +1,7 @@
+{
+  "tool_calls": [
+    {"name": "lookup_customer", "arguments": {"customer_id": "CUST-42"}},
+    {"name": "send_email", "arguments": {"customer_id": "CUST-42", "template": "retention_offer"}},
+    {"name": "send_email", "arguments": {"customer_id": "CUST-42", "template": "retention_offer"}}
+  ]
+}
