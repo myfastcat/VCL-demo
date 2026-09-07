@@ -33,3 +33,5 @@ The demo is intentionally customer-shaped rather than an ACP internal unit test.
 ## Current scope of this demo
 
 This first customer demo verifies the authority-gate path. Incident-regression is not presented here as customer-verified until its end-to-end replay semantics are separately exercised by a customer-shaped reproduction scenario.
+
+The repository workflow `.github/workflows/acp-demo.yml` reruns this customer path on demo changes so customer-facing examples have their own acceptance evidence.
