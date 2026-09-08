@@ -1,7 +1,9 @@
-# 客户 demo
+# Customer demos
 
-每个产品一个子目录；GitHub Actions 就是可运行的客户 CI demo。
+One directory per product. GitHub Actions shows the actual customer experience: a passing gate is green; a blocking/error gate is red.
 
-| 产品 | 场景 | CI |
+| Product | Customer scenario | CI |
 |---|---|---|
-| [ACP](agent-control-plane/) | 客服 Agent：正常发信、越权删除、重复邮件、审批和 trace 缺失 | [运行 / 查看结果](https://github.com/myfastcat/demo/actions/workflows/acp-demo.yml) |
+| [ACP](agent-control-plane/) | Support agent: normal email, unauthorized deletion, duplicate email, approval, and missing traces | [Customer CI — real pass/block](https://github.com/myfastcat/demo/actions/workflows/acp-customer-ci.yml) |
+
+[Engineering acceptance](https://github.com/myfastcat/demo/actions/workflows/acp-demo.yml) separately verifies expected outcomes.

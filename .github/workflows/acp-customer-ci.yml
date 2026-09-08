@@ -1,4 +1,4 @@
-name: ACP engineering acceptance — expected outcomes
+name: ACP customer CI — real pass or block
 on:
   push:
   pull_request:
@@ -11,23 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - case: safe
-            expected: 0
-          - case: authority-deny
-            expected: 2
-          - case: incident-fixed
-            expected: 0
-          - case: incident-regression
-            expected: 2
-          - case: approval
-            expected: 3
-          - case: missing-trace
-            expected: 4
-          - case: malformed-trace
-            expected: 4
-          - case: empty-trace
-            expected: 4
+        case: [safe, authority-deny, incident-fixed, incident-regression, approval, missing-trace, malformed-trace, empty-trace]
     defaults:
       run:
         working-directory: agent-control-plane
@@ -59,11 +43,6 @@ jobs:
           acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --max-occurrences send_email --max 1
           acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --must-occur lookup_customer
           acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --must-not-occur delete_customer
-          set +e
-          acp incident replay .acp/incidents/INC-DUPLICATE-EMAIL.json --json --evidence evidence/original-incident.json
-          status=$?
-          set -e
-          test "$status" -eq 2
       - name: Run the existing customer tests through the generated CI capture command
         env:
           DEMO_VIOLATION: ${{ matrix.case == 'authority-deny' && '1' || '0' }}
@@ -89,10 +68,7 @@ jobs:
           elif case == 'empty-trace':
               trace.write_text('[]')
           PY
-      - name: Customer CI gate and acceptance of exact result
-        env:
-          EXPECTED_EXIT: ${{ matrix.expected }}
-          CUSTOMER_CASE: ${{ matrix.case }}
+      - name: ACP customer gate — nonzero exit fails this job
         run: |
           set +e
           acp check --config .acp/config.json --json > evidence/check.json 2> evidence/check.stderr
@@ -100,30 +76,11 @@ jobs:
           set -e
           echo "$status" > evidence/exit-code.txt
           cat evidence/check.json evidence/check.stderr
-          test "$status" -eq "$EXPECTED_EXIT"
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          expected = int(os.environ['EXPECTED_EXIT'])
-          if expected != 4:
-              report = json.loads(Path('evidence/check.json').read_text())
-              s = report['summary']
-              assert s['ci_pass'] == (expected == 0)
-              assert s['exit_code'] == expected
-              assert s['incident_regressions'] == 1
-              if os.environ['CUSTOMER_CASE'] == 'incident-regression':
-                  assert s['counts']['DENY'] == 0
-                  assert s['incident_failures'] == 1
-              if os.environ['CUSTOMER_CASE'] == 'authority-deny':
-                  assert s['counts']['DENY'] == 1
-          else:
-              assert 'error:' in Path('evidence/check.stderr').read_text()
-          PY
+          exit "$status"
       - name: Show customer result
         if: always()
         env:
           CUSTOMER_CASE: ${{ matrix.case }}
-          EXPECTED_EXIT: ${{ matrix.expected }}
         run: |
           python - <<'PY'
           import json, os
@@ -132,8 +89,7 @@ jobs:
           actual_file = Path('evidence/exit-code.txt')
           actual = actual_file.read_text().strip() if actual_file.exists() else 'not reached'
           verdict = {'0': 'PASS', '2': 'BLOCK', '3': 'APPROVAL — blocked', '4': 'ERROR — no safety verdict'}.get(actual, 'SETUP/TEST FAILURE')
-          expected = os.environ['EXPECTED_EXIT']
-          text = f"### {case}: {verdict}\n\n| Expected exit | Actual exit | Matches |\n|---|---|---|\n| {expected} | {actual} | {actual == expected} |\n\n"
+          text = f"### {case}: {verdict}\n\nActual ACP exit: **{actual}**. Exit 0 is green; exits 2/3/4 fail this customer job.\n\n"
           report_file = Path('evidence/check.json')
           if report_file.exists() and report_file.read_text().strip():
               report = json.loads(report_file.read_text())
@@ -145,7 +101,7 @@ jobs:
           error_file = Path('evidence/check.stderr')
           if error_file.exists() and error_file.read_text().strip():
               text += "\n" + error_file.read_text() + "\n"
-          text += f"\nEvidence: download the **customer-{case}** artifact. A green acceptance job means the expected result was observed, including blocked changes.\n"
+          text += f"\nEvidence: download the **real-customer-{case}** artifact. This job preserves the real ACP exit. BLOCK and ERROR are red in GitHub Actions.\n"
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
               out.write(text)
           print(text)
@@ -153,7 +109,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: customer-${{ matrix.case }}
+          name: real-customer-${{ matrix.case }}
           include-hidden-files: true
           path: |
             agent-control-plane/evidence/
