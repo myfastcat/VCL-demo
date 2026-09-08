@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+*.egg-info/
+agent-control-plane/.acp/
+agent-control-plane/.github/
+agent-control-plane/evidence/

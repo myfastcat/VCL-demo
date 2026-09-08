@@ -1,19 +1,33 @@
-name: ACP customer demo acceptance
-
+name: ACP customer acceptance
 on:
   push:
-    paths:
-      - "agent-control-plane/**"
-      - ".github/workflows/acp-demo.yml"
   pull_request:
-    paths:
-      - "agent-control-plane/**"
-      - ".github/workflows/acp-demo.yml"
-
+  workflow_dispatch:
+permissions:
+  contents: read
 jobs:
-  safe-change:
-    name: Safe customer change passes
+  customer:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - case: safe
+            expected: 0
+          - case: authority-deny
+            expected: 2
+          - case: incident-fixed
+            expected: 0
+          - case: incident-regression
+            expected: 2
+          - case: approval
+            expected: 3
+          - case: missing-trace
+            expected: 4
+          - case: malformed-trace
+            expected: 4
+          - case: empty-trace
+            expected: 4
     defaults:
       run:
         working-directory: agent-control-plane
@@ -21,92 +35,95 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install customer dependencies + ACP
+          python-version: '3.12'
+      - name: Install customer test dependency and exact ACP revision
         run: |
           python -m pip install pytest
-          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
-      - name: Run existing customer tests
-        run: pytest -q
-      - name: ACP CI safety gate
-        run: acp check --config .acp/config.json
-
-  authority-violation:
-    name: Unauthorized agent action is blocked
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-control-plane
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install customer dependencies + ACP
+          python -m pip install "git+https://github.com/myfastcat/VCL.git@1d8690a59e42f4aa14951e309ec32ef8b9e194bd"
+      - name: Customer initializes authority, config and CI from existing tools
         run: |
-          python -m pip install pytest
-          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
-      - name: Run existing customer tests for a bad code change
-        run: DEMO_VIOLATION=1 pytest -q
-      - name: ACP blocks the unauthorized action
-        shell: bash
+          acp init . --ci --test-command 'python -m pytest -q'
+          test -f .acp/authority.json
+          test -f .acp/config.json
+          test -f .github/workflows/acp.yml
+          test -d .acp/incidents
+          test -z "$(find .acp/incidents -type f -print -quit)"
+          mkdir -p evidence
+          cp .acp/authority.json evidence/draft-authority.json
+          cp .github/workflows/acp.yml evidence/generated-acp.yml
+          cp customer-policy.json .acp/authority.json
+          acp validate .acp/authority.json
+      - name: Customer supplies historical duplicate-email trace and chooses invariant
         run: |
+          acp incident import incidents/raw-duplicate-email.json --incident-id INC-DUPLICATE-EMAIL
+          acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --max-occurrences send_email --max 1
+          acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --must-occur lookup_customer
+          acp incident assert .acp/incidents/INC-DUPLICATE-EMAIL.json --must-not-occur delete_customer
           set +e
-          acp check --config .acp/config.json
+          acp incident replay .acp/incidents/INC-DUPLICATE-EMAIL.json --json --evidence evidence/original-incident.json
           status=$?
           set -e
-          if [ "$status" -ne 2 ]; then
-            echo "Expected ACP to block authority violation with exit 2; got $status"
-            exit 1
-          fi
-          echo "ACP blocked delete_customer as expected"
-
-  incident-fixed:
-    name: Fixed historical incident stays green
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-control-plane
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install customer dependencies + ACP
+          test "$status" -eq 2
+      - name: Run the existing customer tests through the generated CI capture command
+        env:
+          DEMO_VIOLATION: ${{ matrix.case == 'authority-deny' && '1' || '0' }}
+          DEMO_REGRESSION: ${{ matrix.case == 'incident-regression' && '1' || '0' }}
+        run: python -m agent_control_plane.zero_code_runner -- sh -c 'python -m pytest -q'
+      - name: Model approval and input-failure cases
+        env:
+          CUSTOMER_CASE: ${{ matrix.case }}
         run: |
-          python -m pip install pytest
-          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
-      - name: Run existing customer tests after the incident fix
-        run: pytest -q
-      - name: ACP checks committed incident regression rules
-        run: acp check --config .acp/config.json
-
-  incident-regression:
-    name: Historical incident recurrence is blocked
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: agent-control-plane
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install customer dependencies + ACP
-        run: |
-          python -m pip install pytest
-          python -m pip install "git+https://github.com/myfastcat/VCL.git#subdirectory=agent-control-plane"
-      - name: Run existing customer tests for a regressing code change
-        run: DEMO_REGRESSION=1 pytest -q
-      - name: ACP blocks recurrence of the historical incident
-        shell: bash
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          case = os.environ['CUSTOMER_CASE']
+          trace = Path('.acp/traces/customer-support.json')
+          if case == 'approval':
+              events = json.loads(trace.read_text())
+              events.append({'action': 'update_customer', 'context': {}})
+              trace.write_text(json.dumps(events))
+          elif case == 'missing-trace':
+              trace.unlink()
+          elif case == 'malformed-trace':
+              Path('.acp/traces/broken.json').write_text('{broken')
+          elif case == 'empty-trace':
+              trace.write_text('[]')
+          PY
+      - name: Customer CI gate and acceptance of exact result
+        env:
+          EXPECTED_EXIT: ${{ matrix.expected }}
+          CUSTOMER_CASE: ${{ matrix.case }}
         run: |
           set +e
-          acp check --config .acp/config.json
+          acp check --config .acp/config.json --json > evidence/check.json 2> evidence/check.stderr
           status=$?
           set -e
-          if [ "$status" -ne 2 ]; then
-            echo "Expected ACP to block incident recurrence with exit 2; got $status"
-            exit 1
-          fi
-          echo "ACP blocked duplicate-email regression as expected"
+          echo "$status" > evidence/exit-code.txt
+          cat evidence/check.json evidence/check.stderr
+          test "$status" -eq "$EXPECTED_EXIT"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          expected = int(os.environ['EXPECTED_EXIT'])
+          if expected != 4:
+              report = json.loads(Path('evidence/check.json').read_text())
+              s = report['summary']
+              assert s['ci_pass'] == (expected == 0)
+              assert s['exit_code'] == expected
+              assert s['incident_regressions'] == 1
+              if os.environ['CUSTOMER_CASE'] == 'incident-regression':
+                  assert s['counts']['DENY'] == 0
+                  assert s['incident_failures'] == 1
+              if os.environ['CUSTOMER_CASE'] == 'authority-deny':
+                  assert s['counts']['DENY'] == 1
+          else:
+              assert 'error:' in Path('evidence/check.stderr').read_text()
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: customer-${{ matrix.case }}
+          include-hidden-files: true
+          path: |
+            agent-control-plane/evidence/
+            agent-control-plane/.acp/

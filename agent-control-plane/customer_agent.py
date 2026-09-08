@@ -5,14 +5,22 @@ import os
 from pathlib import Path
 
 
+# Stand-in for the customer framework tool decorator; ACP scans it statically.
+def tool(fn):
+    return fn
+
+
+@tool
 def lookup_customer(customer_id: str) -> dict:
     return {"id": customer_id, "plan": "pro", "status": "active"}
 
 
+@tool
 def send_email(customer_id: str, template: str) -> dict:
     return {"customer_id": customer_id, "template": template, "sent": True}
 
 
+@tool
 def delete_customer(customer_id: str) -> dict:
     return {"customer_id": customer_id, "deleted": True}
 

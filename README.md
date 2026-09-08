@@ -1,16 +1,9 @@
-# VCL Demo Lab
+# Shared customer demos
 
-Customer-style demo projects for products built by the Venture Creation Loop.
+One product per directory; product source lives in its own repository. Each demo's GitHub Actions workflow is the customer CI example and acceptance harness. There is no `demo.sh`.
 
-Each VCL product gets its own subdirectory. The code inside should look like a small real customer project, not a product-internal unit test, so it can serve two purposes:
+| Product | Customer case | Acceptance workflow |
+| --- | --- | --- |
+| [Agent Control Plane](agent-control-plane/) | Support agent: authorized retention email, accidental deletion, duplicate-email regression, approval, missing/invalid observations | [ACP customer acceptance](.github/workflows/acp-demo.yml) |
 
-1. acceptance-test the product from a user's point of view;
-2. provide a repeatable customer demo.
-
-## Products
-
-- [`agent-control-plane/`](./agent-control-plane/) — simulated customer-support agent showing ACP authority gates and trace-based CI checks.
-
-## Demo rule
-
-A demo is not considered verified because files were committed. For each product, verify the documented user path and record the result in that product directory.
+The requested rename from `myfastcat/VCL-demo` to `myfastcat/demo` is pending a settings-capable authenticated session. This remains the shared demo repository at its current URL until confirmed; no completed rename is implied.
