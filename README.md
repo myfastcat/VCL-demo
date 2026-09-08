@@ -7,3 +7,5 @@ One directory per product. GitHub Actions shows the actual customer experience: 
 | [ACP](agent-control-plane/) | Support agent: normal email, unauthorized deletion, duplicate email, approval, and missing traces | [Customer CI — real pass/block](https://github.com/myfastcat/demo/actions/workflows/acp-customer-ci.yml) |
 
 [Engineering acceptance](https://github.com/myfastcat/demo/actions/workflows/acp-demo.yml) separately verifies expected outcomes.
+
+[AI Interview Lab — free retrieval debugging exercise](ai-interview-lab/) · Python 3.10+, offline, no API key.
